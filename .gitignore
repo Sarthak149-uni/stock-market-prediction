@@ -1,46 +1,36 @@
 # Python
-
-**pycache**/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
 
 # Virtual Environment
-
 venv/
 env/
 .venv/
 
-# Streamlit
-
-.streamlit/
+# Streamlit Secrets (keep config.toml)
+.streamlit/secrets.toml
 
 # Jupyter
-
 .ipynb_checkpoints/
 
-# Model Files
-
-*.h5
-*.keras
+# Model Files (comment out for deployment)
+# *.h5
+# *.keras
 
 # Environment Variables
-
 .env
 
 # VS Code
-
 .vscode/
 
 # PyCharm
-
 .idea/
 
 # Logs
-
 *.log
 
 # OS Files
-
 .DS_Store
 Thumbs.db

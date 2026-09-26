@@ -19,26 +19,39 @@ An AI-driven stock market prediction web application built using Deep Learning (
 
 * Deep Learning LSTM Model
 * Next-Day Stock Price Prediction
+* 7-Day Multi-Step Forecast
+* 30-Day Multi-Step Forecast
 * Historical Trend Analysis
 * Data Normalization & Forecasting
 
 ### Technical Indicators
 
-* Moving Average (MA50)
-* Moving Average (MA100)
-* Relative Strength Index (RSI)
+* Moving Average (MA50 / MA100 / MA200)
+* Relative Strength Index (RSI-14)
+* MACD (12-26-9) with Signal Line & Histogram
+* Bollinger Bands (20-Day SMA ± 2σ)
 
 ### Visualization
 
-* Interactive Candlestick Charts
+* Interactive Candlestick / Line / Area Charts
+* Volume Overlay with Color-Coded Bars
 * Prediction vs Actual Graphs
 * Technical Indicator Charts
-* Real-Time Dashboard
+* Real-Time Dashboard with Live Metrics
+* Stock Comparison Tool (Normalized)
 
 ### News Analytics
 
 * Real-Time Financial News Feed
 * Stock-Specific Market Updates
+
+### Premium UI
+
+* Glassmorphism Dark Theme
+* Gradient Accents & Animations
+* Color-Coded Price Deltas
+* Tabbed Layout with Sub-Tabs
+* Responsive Design
 
 ---
 
@@ -46,7 +59,7 @@ An AI-driven stock market prediction web application built using Deep Learning (
 
 ### Frontend
 
-* Streamlit
+* Streamlit (with Custom CSS)
 
 ### Backend
 
@@ -76,25 +89,31 @@ An AI-driven stock market prediction web application built using Deep Learning (
 
 ## 📂 Project Structure
 
+```
 Stock-Market-Prediction/
-
-├── app.py
-
+├── app.py                          # Main application
 ├── model/
-
-│ └── stock_lstm_model.keras
-
+│   └── stock_lstm_model.keras      # Trained LSTM model
 ├── assets/
-
-│ └── logo.png
-
-├── requirements.txt
-
-├── train_model.py
-
+│   └── logo.png                    # Logo asset
+├── src/
+│   ├── charts.py                   # Chart utilities
+│   ├── data_loader.py              # Data fetching
+│   ├── indicators.py               # Technical indicators
+│   ├── news.py                     # News feed
+│   └── predictor.py                # Prediction logic
+├── pages/
+│   ├── 1_Dashboard.py              # Dashboard page
+│   ├── 2_Predictions.py            # Predictions page
+│   └── 3_News.py                   # News page
+├── .streamlit/
+│   └── config.toml                 # Theme configuration
+├── .python-version                 # Python version for deployment
+├── requirements.txt                # Dependencies
+├── train_model.py                  # Model training script
 ├── README.md
-
 └── .gitignore
+```
 
 ---
 
@@ -102,17 +121,39 @@ Stock-Market-Prediction/
 
 ### Clone Repository
 
-git clone https://github.com/YOUR_USERNAME/stock-market-prediction.git
-
+```bash
+git clone https://github.com/Sarthak149-uni/stock-market-prediction.git
 cd stock-market-prediction
+```
 
 ### Install Dependencies
 
+```bash
 pip install -r requirements.txt
+```
+
+### Train Model (Optional)
+
+```bash
+python train_model.py
+```
 
 ### Run Application
 
+```bash
 streamlit run app.py
+```
+
+---
+
+## ☁️ Deployment (Streamlit Community Cloud)
+
+1. Push the repository to GitHub (including the `model/` directory)
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Connect your GitHub account
+4. Select repository: `Sarthak149-uni/stock-market-prediction`
+5. Set Main file path: `app.py`
+6. Click **Deploy**
 
 ---
 
@@ -121,21 +162,8 @@ streamlit run app.py
 * Portfolio Tracker
 * Watchlist Management
 * Sentiment Analysis using FinBERT
-* 7-Day Forecasting
-* 30-Day Forecasting
 * Stock Recommendation Engine
 * User Authentication
-* Cloud Deployment
-
----
-
-## 🎯 Resume Highlights
-
-* Developed a full-stack AI-powered stock market analysis platform.
-* Implemented Deep Learning-based stock price forecasting using LSTM.
-* Integrated live stock market data and financial news APIs.
-* Built interactive dashboards for market analysis and visualization.
-* Applied Machine Learning, Data Analytics, and Financial Forecasting concepts.
 
 ---
 
