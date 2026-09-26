@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import feedparser
 from datetime import datetime, timedelta
+import pytz
 from streamlit_autorefresh import st_autorefresh
 
 from sklearn.preprocessing import MinMaxScaler
@@ -21,7 +22,7 @@ except ImportError:
 # ======================================================
 
 st.set_page_config(
-    page_title="AI Stock Market Predictor",
+    page_title="AI Stock & Crypto — Live Terminal",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -34,22 +35,20 @@ st.set_page_config(
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
     :root {
         --bg-primary: #0a0e17;
         --bg-secondary: #111827;
-        --bg-card: rgba(17, 24, 39, 0.7);
         --bg-glass: rgba(255, 255, 255, 0.03);
         --border-glass: rgba(255, 255, 255, 0.08);
         --accent-primary: #6C63FF;
         --accent-secondary: #a78bfa;
         --accent-gradient: linear-gradient(135deg, #6C63FF 0%, #a78bfa 50%, #c084fc 100%);
         --green: #10b981;
-        --green-glow: rgba(16, 185, 129, 0.2);
+        --green-glow: rgba(16, 185, 129, 0.3);
         --red: #ef4444;
-        --red-glow: rgba(239, 68, 68, 0.2);
-        --yellow: #f59e0b;
-        --blue: #3b82f6;
+        --red-glow: rgba(239, 68, 68, 0.3);
         --text-primary: #e2e8f0;
         --text-secondary: #94a3b8;
         --text-muted: #64748b;
@@ -60,46 +59,116 @@ st.markdown("""
         font-family: 'Inter', sans-serif !important;
     }
 
-    /* ===== Hero Header ===== */
-    .hero-header {
-        background: linear-gradient(135deg, rgba(108,99,255,0.15) 0%, rgba(167,139,250,0.08) 50%, rgba(192,132,252,0.05) 100%);
+    /* ===== Live Price Ticker ===== */
+    .live-ticker {
+        background: linear-gradient(135deg, rgba(108,99,255,0.08) 0%, rgba(17,24,39,0.95) 100%);
         border: 1px solid var(--border-glass);
         border-radius: 20px;
-        padding: 2.5rem 3rem;
-        margin-bottom: 2rem;
+        padding: 1.8rem 2.5rem;
+        margin-bottom: 1.5rem;
         backdrop-filter: blur(20px);
         position: relative;
         overflow: hidden;
     }
-    .hero-header::before {
+    .live-ticker::before {
         content: '';
         position: absolute;
         top: -50%;
-        right: -20%;
-        width: 400px;
-        height: 400px;
-        background: radial-gradient(circle, rgba(108,99,255,0.12) 0%, transparent 70%);
+        right: -15%;
+        width: 350px;
+        height: 350px;
+        background: radial-gradient(circle, rgba(108,99,255,0.08) 0%, transparent 70%);
         border-radius: 50%;
     }
-    .hero-title {
-        font-size: 2.8rem;
-        font-weight: 800;
-        background: var(--accent-gradient);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin: 0;
-        line-height: 1.2;
+    .ticker-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 1rem;
         position: relative;
         z-index: 1;
     }
-    .hero-subtitle {
-        color: var(--text-secondary);
+    .ticker-left {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    .ticker-symbol {
+        font-size: 2rem;
+        font-weight: 800;
+        color: var(--text-primary);
+        font-family: 'Inter', sans-serif;
+    }
+    .ticker-market-badge {
+        background: rgba(108,99,255,0.15);
+        color: var(--accent-secondary);
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.25rem 0.7rem;
+        border-radius: 20px;
+        letter-spacing: 1px;
+        border: 1px solid rgba(108,99,255,0.2);
+    }
+    .ticker-price {
+        font-size: 2.8rem;
+        font-weight: 800;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: -1px;
+    }
+    .ticker-price-up { color: var(--green); text-shadow: 0 0 30px var(--green-glow); }
+    .ticker-price-down { color: var(--red); text-shadow: 0 0 30px var(--red-glow); }
+    .ticker-change {
         font-size: 1.1rem;
-        font-weight: 400;
-        margin-top: 0.5rem;
-        position: relative;
-        z-index: 1;
+        font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+        margin-left: 1rem;
+    }
+    .ticker-time {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ===== Market Status ===== */
+    .market-open {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(16, 185, 129, 0.12);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: #10b981;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        letter-spacing: 0.5px;
+    }
+    .market-closed {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #ef4444;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        letter-spacing: 0.5px;
+    }
+    .market-247 {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(245, 158, 11, 0.12);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        color: #f59e0b;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        letter-spacing: 0.5px;
     }
 
     /* ===== Glassmorphism Cards ===== */
@@ -121,8 +190,8 @@ st.markdown("""
     .metric-card {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
-        border-radius: 16px;
-        padding: 1.5rem;
+        border-radius: 14px;
+        padding: 1.2rem;
         backdrop-filter: blur(12px);
         text-align: center;
         transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -132,50 +201,38 @@ st.markdown("""
     .metric-card::after {
         content: '';
         position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
+        bottom: 0; left: 0; right: 0;
+        height: 2px;
         background: var(--accent-gradient);
-        border-radius: 0 0 16px 16px;
     }
     .metric-card:hover {
         border-color: rgba(108, 99, 255, 0.4);
-        box-shadow: 0 12px 40px rgba(108, 99, 255, 0.15);
-        transform: translateY(-4px);
+        box-shadow: 0 8px 32px rgba(108, 99, 255, 0.12);
+        transform: translateY(-3px);
     }
     .metric-label {
-        font-size: 0.8rem;
-        font-weight: 500;
+        font-size: 0.7rem;
+        font-weight: 600;
         color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 1.5px;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.4rem;
     }
     .metric-value {
-        font-size: 1.6rem;
+        font-size: 1.3rem;
         font-weight: 700;
         color: var(--text-primary);
+        font-family: 'JetBrains Mono', monospace;
     }
-    .metric-delta-up {
-        color: var(--green);
-        font-size: 0.85rem;
-        font-weight: 600;
-        margin-top: 0.3rem;
-    }
-    .metric-delta-down {
-        color: var(--red);
-        font-size: 0.85rem;
-        font-weight: 600;
-        margin-top: 0.3rem;
-    }
+    .metric-delta-up { color: var(--green); font-size: 0.8rem; font-weight: 600; margin-top: 0.2rem; }
+    .metric-delta-down { color: var(--red); font-size: 0.8rem; font-weight: 600; margin-top: 0.2rem; }
 
     /* ===== Section Headers ===== */
     .section-header {
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         font-weight: 700;
         color: var(--text-primary);
-        margin: 2rem 0 1rem;
+        margin: 1.5rem 0 1rem;
         padding-bottom: 0.5rem;
         border-bottom: 2px solid var(--border-glass);
         display: flex;
@@ -185,25 +242,24 @@ st.markdown("""
     .section-badge {
         background: var(--accent-gradient);
         color: white;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         font-weight: 600;
         padding: 0.2rem 0.6rem;
         border-radius: 20px;
         letter-spacing: 0.5px;
     }
-    .section-badge-live {
+    .badge-live {
         background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
         color: white;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         font-weight: 600;
         padding: 0.2rem 0.6rem;
         border-radius: 20px;
-        letter-spacing: 0.5px;
         animation: glow-pulse 2s ease-in-out infinite;
     }
     @keyframes glow-pulse {
-        0%, 100% { box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
-        50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.7); }
+        0%, 100% { box-shadow: 0 0 6px rgba(16, 185, 129, 0.4); }
+        50% { box-shadow: 0 0 18px rgba(16, 185, 129, 0.7); }
     }
 
     /* ===== Prediction Banner ===== */
@@ -212,7 +268,7 @@ st.markdown("""
         border: 1px solid rgba(16, 185, 129, 0.25);
         border-radius: 16px;
         padding: 1.5rem 2rem;
-        margin: 1.5rem 0;
+        margin: 1rem 0;
         display: flex;
         align-items: center;
         gap: 1rem;
@@ -221,25 +277,25 @@ st.markdown("""
         background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(248, 113, 113, 0.05) 100%);
         border-color: rgba(239, 68, 68, 0.25);
     }
-    .prediction-icon { font-size: 2.5rem; }
-    .prediction-text { font-size: 1.3rem; font-weight: 700; color: var(--text-primary); }
-    .prediction-sub { font-size: 0.9rem; color: var(--text-secondary); }
+    .prediction-icon { font-size: 2.2rem; }
+    .prediction-text { font-size: 1.2rem; font-weight: 700; color: var(--text-primary); }
+    .prediction-sub { font-size: 0.85rem; color: var(--text-secondary); }
 
     /* ===== News Cards ===== */
     .news-card {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         border-radius: 12px;
-        padding: 1.2rem 1.5rem;
-        margin: 0.6rem 0;
+        padding: 1rem 1.2rem;
+        margin: 0.5rem 0;
         transition: all 0.3s ease;
     }
     .news-card:hover {
         border-color: rgba(108, 99, 255, 0.3);
         transform: translateX(4px);
     }
-    .news-title { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; line-height: 1.4; }
-    .news-meta { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.3rem; }
+    .news-title { color: var(--text-primary); font-weight: 600; font-size: 0.9rem; line-height: 1.4; }
+    .news-meta { color: var(--text-muted); font-size: 0.75rem; margin-top: 0.2rem; }
 
     /* ===== Sidebar ===== */
     [data-testid="stSidebar"] {
@@ -251,40 +307,37 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        font-size: 1.4rem;
+        font-size: 1.3rem;
         font-weight: 800;
-        margin-bottom: 1rem;
-        letter-spacing: -0.5px;
+        margin-bottom: 0.8rem;
     }
     .sidebar-divider {
         border: none;
         border-top: 1px solid var(--border-glass);
-        margin: 1rem 0;
+        margin: 0.8rem 0;
     }
-
-    /* ===== Real-time badge ===== */
-    .realtime-status {
-        background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(52, 211, 153, 0.05) 100%);
-        border: 1px solid rgba(16, 185, 129, 0.3);
-        border-radius: 12px;
-        padding: 0.8rem 1rem;
+    .rt-indicator {
+        background: linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(52,211,153,0.05) 100%);
+        border: 1px solid rgba(16,185,129,0.3);
+        border-radius: 10px;
+        padding: 0.6rem 0.8rem;
         text-align: center;
-        margin: 0.5rem 0 1rem;
+        margin: 0.4rem 0 0.8rem;
     }
-    .realtime-status-off {
-        background: linear-gradient(135deg, rgba(100, 116, 139, 0.15) 0%, rgba(100, 116, 139, 0.05) 100%);
-        border: 1px solid rgba(100, 116, 139, 0.3);
-        border-radius: 12px;
-        padding: 0.8rem 1rem;
+    .rt-indicator-off {
+        background: rgba(100,116,139,0.1);
+        border: 1px solid rgba(100,116,139,0.2);
+        border-radius: 10px;
+        padding: 0.6rem 0.8rem;
         text-align: center;
-        margin: 0.5rem 0 1rem;
+        margin: 0.4rem 0 0.8rem;
     }
 
     /* ===== Tabs ===== */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 0.5rem;
+        gap: 0.4rem;
         background: var(--bg-glass);
-        padding: 0.5rem;
+        padding: 0.4rem;
         border-radius: 12px;
         border: 1px solid var(--border-glass);
     }
@@ -292,7 +345,7 @@ st.markdown("""
         border-radius: 8px !important;
         color: var(--text-secondary) !important;
         font-weight: 500 !important;
-        padding: 0.5rem 1.2rem !important;
+        padding: 0.4rem 1rem !important;
     }
     .stTabs [aria-selected="true"] {
         background: var(--accent-gradient) !important;
@@ -309,64 +362,70 @@ st.markdown("""
         border: 1px solid var(--border-glass);
     }
     .compare-table th {
-        background: rgba(108, 99, 255, 0.1);
+        background: rgba(108,99,255,0.1);
         color: var(--accent-secondary);
-        padding: 0.8rem 1rem;
+        padding: 0.7rem 1rem;
         font-weight: 600;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         text-transform: uppercase;
         letter-spacing: 1px;
     }
     .compare-table td {
-        padding: 0.8rem 1rem;
+        padding: 0.7rem 1rem;
         color: var(--text-primary);
         border-bottom: 1px solid var(--border-glass);
-        font-size: 0.95rem;
     }
     .compare-table tr:last-child td { border-bottom: none; }
 
     /* ===== Animations ===== */
     @keyframes pulse {
         0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
+        50% { opacity: 0.4; }
     }
     .live-dot {
-        width: 8px;
-        height: 8px;
+        width: 8px; height: 8px;
         background: var(--green);
         border-radius: 50%;
         display: inline-block;
-        animation: pulse 2s ease-in-out infinite;
-        margin-right: 6px;
-        box-shadow: 0 0 8px var(--green-glow);
+        animation: pulse 1.5s ease-in-out infinite;
+        margin-right: 5px;
+        box-shadow: 0 0 10px var(--green-glow);
     }
+    @keyframes price-flash-up {
+        0% { background: transparent; }
+        30% { background: rgba(16, 185, 129, 0.15); }
+        100% { background: transparent; }
+    }
+    @keyframes price-flash-down {
+        0% { background: transparent; }
+        30% { background: rgba(239, 68, 68, 0.15); }
+        100% { background: transparent; }
+    }
+    .flash-up { animation: price-flash-up 1.5s ease-out; }
+    .flash-down { animation: price-flash-down 1.5s ease-out; }
 
     /* ===== Scrollbar ===== */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: var(--bg-primary); }
     ::-webkit-scrollbar-thumb { background: var(--border-glass); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--accent-primary); }
 
-    /* ===== Footer ===== */
     .footer {
         background: var(--bg-glass);
         border: 1px solid var(--border-glass);
         border-radius: 16px;
-        padding: 2rem;
-        margin-top: 3rem;
+        padding: 1.5rem;
+        margin-top: 2rem;
         text-align: center;
-        backdrop-filter: blur(12px);
     }
-    .footer-text { color: var(--text-muted); font-size: 0.85rem; }
+    .footer-text { color: var(--text-muted); font-size: 0.8rem; }
     .footer-brand {
         background: var(--accent-gradient);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        background-clip: text;
         font-weight: 700;
     }
 
-    /* ===== Hide defaults ===== */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -375,159 +434,105 @@ st.markdown("""
 
 
 # ======================================================
-# MARKET DATA REGISTRY
+# MARKET REGISTRY
 # ======================================================
 
 MARKETS = {
     "NSE": {
-        "icon": "🇮🇳",
-        "label": "NSE (India)",
-        "suffix": ".NS",
-        "currency": "₹",
+        "icon": "🇮🇳", "label": "NSE India", "suffix": ".NS", "currency": "₹",
+        "tz": "Asia/Kolkata", "open": 9, "close": 15, "open_min": 15, "close_min": 30,
         "stocks": {
-            "Reliance": "RELIANCE",
-            "TCS": "TCS",
-            "Infosys": "INFY",
-            "HDFC Bank": "HDFCBANK",
-            "SBI": "SBIN",
-            "ITC": "ITC",
-            "Tata Motors": "TATAMOTORS",
-            "Wipro": "WIPRO",
-            "Bajaj Finance": "BAJFINANCE",
-            "Maruti Suzuki": "MARUTI",
-            "Kotak Bank": "KOTAKBANK",
-            "L&T": "LT",
-            "HCL Tech": "HCLTECH",
-            "Asian Paints": "ASIANPAINT",
-            "Axis Bank": "AXISBANK",
-            "Bharti Airtel": "BHARTIARTL",
-            "Sun Pharma": "SUNPHARMA",
-            "Titan": "TITAN",
-            "Tata Steel": "TATASTEEL",
-            "Power Grid": "POWERGRID"
+            "Reliance": "RELIANCE", "TCS": "TCS", "Infosys": "INFY",
+            "HDFC Bank": "HDFCBANK", "SBI": "SBIN", "ITC": "ITC",
+            "Tata Motors": "TATAMOTORS", "Wipro": "WIPRO",
+            "Bajaj Finance": "BAJFINANCE", "Maruti Suzuki": "MARUTI",
+            "Kotak Bank": "KOTAKBANK", "L&T": "LT", "HCL Tech": "HCLTECH",
+            "Asian Paints": "ASIANPAINT", "Axis Bank": "AXISBANK",
+            "Bharti Airtel": "BHARTIARTL", "Sun Pharma": "SUNPHARMA",
+            "Titan": "TITAN", "Tata Steel": "TATASTEEL", "Power Grid": "POWERGRID"
         }
     },
     "BSE": {
-        "icon": "🇮🇳",
-        "label": "BSE (India)",
-        "suffix": ".BO",
-        "currency": "₹",
+        "icon": "🇮🇳", "label": "BSE India", "suffix": ".BO", "currency": "₹",
+        "tz": "Asia/Kolkata", "open": 9, "close": 15, "open_min": 15, "close_min": 30,
         "stocks": {
-            "Reliance": "RELIANCE",
-            "TCS": "TCS",
-            "Infosys": "INFY",
-            "HDFC Bank": "HDFCBANK",
-            "SBI": "SBIN",
-            "ITC": "ITC",
-            "Tata Motors": "TATAMOTORS",
-            "Wipro": "WIPRO",
-            "Bajaj Finance": "BAJFINANCE",
-            "Maruti Suzuki": "MARUTI"
+            "Reliance": "RELIANCE", "TCS": "TCS", "Infosys": "INFY",
+            "HDFC Bank": "HDFCBANK", "SBI": "SBIN", "ITC": "ITC",
+            "Tata Motors": "TATAMOTORS", "Wipro": "WIPRO",
+            "Bajaj Finance": "BAJFINANCE", "Maruti Suzuki": "MARUTI"
         }
     },
     "US": {
-        "icon": "🇺🇸",
-        "label": "US Market",
-        "suffix": "",
-        "currency": "$",
+        "icon": "🇺🇸", "label": "US Market", "suffix": "", "currency": "$",
+        "tz": "America/New_York", "open": 9, "close": 16, "open_min": 30, "close_min": 0,
         "stocks": {
-            "Apple": "AAPL",
-            "Microsoft": "MSFT",
-            "Google": "GOOGL",
-            "Amazon": "AMZN",
-            "Tesla": "TSLA",
-            "Meta": "META",
-            "NVIDIA": "NVDA",
-            "Netflix": "NFLX",
-            "AMD": "AMD",
-            "Intel": "INTC",
-            "Berkshire": "BRK-B",
-            "JPMorgan": "JPM",
-            "Visa": "V",
-            "Walmart": "WMT",
-            "Disney": "DIS",
-            "PayPal": "PYPL",
-            "Uber": "UBER",
-            "Spotify": "SPOT",
-            "Snowflake": "SNOW",
-            "Palantir": "PLTR"
+            "Apple": "AAPL", "Microsoft": "MSFT", "Google": "GOOGL",
+            "Amazon": "AMZN", "Tesla": "TSLA", "Meta": "META",
+            "NVIDIA": "NVDA", "Netflix": "NFLX", "AMD": "AMD",
+            "Intel": "INTC", "Berkshire": "BRK-B", "JPMorgan": "JPM",
+            "Visa": "V", "Walmart": "WMT", "Disney": "DIS",
+            "PayPal": "PYPL", "Uber": "UBER", "Spotify": "SPOT",
+            "Snowflake": "SNOW", "Palantir": "PLTR"
         }
     },
     "CRYPTO": {
-        "icon": "🪙",
-        "label": "Crypto",
-        "suffix": "-USD",
-        "currency": "$",
+        "icon": "🪙", "label": "Crypto", "suffix": "-USD", "currency": "$",
+        "tz": None, "open": None, "close": None,
         "stocks": {
-            "Bitcoin": "BTC",
-            "Ethereum": "ETH",
-            "Solana": "SOL",
-            "XRP": "XRP",
-            "Dogecoin": "DOGE",
-            "Cardano": "ADA",
-            "Avalanche": "AVAX",
-            "Polkadot": "DOT",
-            "Chainlink": "LINK",
-            "Polygon": "MATIC",
-            "Litecoin": "LTC",
-            "Uniswap": "UNI",
-            "Shiba Inu": "SHIB",
-            "Stellar": "XLM",
-            "Toncoin": "TON11419",
-            "Near Protocol": "NEAR",
-            "Sui": "SUI20947",
-            "Aptos": "APT21794",
-            "Pepe": "PEPE24478",
-            "Render": "RNDR"
+            "Bitcoin": "BTC", "Ethereum": "ETH", "Solana": "SOL",
+            "XRP": "XRP", "Dogecoin": "DOGE", "Cardano": "ADA",
+            "Avalanche": "AVAX", "Polkadot": "DOT", "Chainlink": "LINK",
+            "Polygon": "MATIC", "Litecoin": "LTC", "Uniswap": "UNI",
+            "Shiba Inu": "SHIB", "Stellar": "XLM",
+            "Toncoin": "TON11419", "Near Protocol": "NEAR",
+            "Sui": "SUI20947", "Aptos": "APT21794",
+            "Pepe": "PEPE24478", "Render": "RNDR"
         }
     },
     "INDEX": {
-        "icon": "📊",
-        "label": "Indices",
-        "suffix": "",
-        "currency": "",
+        "icon": "📊", "label": "Indices", "suffix": "", "currency": "",
+        "tz": None, "open": None, "close": None,
         "stocks": {
-            "NIFTY 50": "^NSEI",
-            "BANK NIFTY": "^NSEBANK",
-            "SENSEX": "^BSESN",
-            "S&P 500": "^GSPC",
-            "NASDAQ": "^IXIC",
-            "Dow Jones": "^DJI",
-            "Russell 2000": "^RUT",
-            "FTSE 100": "^FTSE",
-            "DAX": "^GDAXI",
-            "Nikkei 225": "^N225",
-            "Hang Seng": "^HSI",
-            "Shanghai": "000001.SS"
+            "NIFTY 50": "^NSEI", "BANK NIFTY": "^NSEBANK", "SENSEX": "^BSESN",
+            "S&P 500": "^GSPC", "NASDAQ": "^IXIC", "Dow Jones": "^DJI",
+            "Russell 2000": "^RUT", "FTSE 100": "^FTSE",
+            "DAX": "^GDAXI", "Nikkei 225": "^N225",
+            "Hang Seng": "^HSI", "Shanghai": "000001.SS"
         }
     }
-}
-
-INTERVALS = {
-    "1 Minute": "1m",
-    "2 Minutes": "2m",
-    "5 Minutes": "5m",
-    "15 Minutes": "15m",
-    "30 Minutes": "30m",
-    "1 Hour": "1h",
-    "1 Day": "1d",
-    "1 Week": "1wk",
-    "1 Month": "1mo"
-}
-
-INTRADAY_PERIODS = {
-    "1 Minute": "1d",
-    "2 Minutes": "5d",
-    "5 Minutes": "5d",
-    "15 Minutes": "1mo",
-    "30 Minutes": "1mo",
-    "1 Hour": "6mo"
 }
 
 
 # ======================================================
 # HELPER FUNCTIONS
 # ======================================================
+
+def is_market_open(market_key):
+    """Check if the market is currently open."""
+    info = MARKETS[market_key]
+    if market_key == "CRYPTO":
+        return "24/7"
+    if info.get("tz") is None:
+        return "unknown"
+    tz = pytz.timezone(info["tz"])
+    now = datetime.now(tz)
+    if now.weekday() >= 5:  # Saturday/Sunday
+        return "closed"
+    market_open = now.replace(hour=info["open"], minute=info.get("open_min", 0), second=0)
+    market_close = now.replace(hour=info["close"], minute=info.get("close_min", 0), second=0)
+    return "open" if market_open <= now <= market_close else "closed"
+
+
+def get_market_status_html(market_key):
+    status = is_market_open(market_key)
+    if status == "24/7":
+        return '<span class="market-247"><span class="live-dot" style="background:#f59e0b;box-shadow:0 0 8px rgba(245,158,11,0.3);"></span>24/7 OPEN</span>'
+    elif status == "open":
+        return '<span class="market-open"><span class="live-dot"></span>MARKET OPEN</span>'
+    elif status == "closed":
+        return '<span class="market-closed">● MARKET CLOSED</span>'
+    return ''
+
 
 def calculate_rsi(close_series, period=14):
     delta = close_series.diff()
@@ -544,85 +549,44 @@ def calculate_macd(close_series, fast=12, slow=26, signal=9):
     ema_slow = close_series.ewm(span=slow, adjust=False).mean()
     macd_line = ema_fast - ema_slow
     signal_line = macd_line.ewm(span=signal, adjust=False).mean()
-    histogram = macd_line - signal_line
-    return macd_line, signal_line, histogram
+    return macd_line, signal_line, macd_line - signal_line
 
 
 def calculate_bollinger(close_series, period=20, std_dev=2):
     sma = close_series.rolling(period).mean()
     std = close_series.rolling(period).std()
-    upper = sma + (std_dev * std)
-    lower = sma - (std_dev * std)
-    return upper, sma, lower
+    return sma + (std_dev * std), sma, sma - (std_dev * std)
 
 
-def get_currency_symbol(market):
-    return MARKETS.get(market, {}).get("currency", "")
-
-
-def format_price(price, currency):
+def fmt_price(price, currency):
     if currency == "₹":
         return f"₹{price:,.2f}"
     elif currency == "$":
         return f"${price:,.2f}"
-    else:
-        return f"{price:,.2f}"
+    return f"{price:,.2f}"
 
 
-def format_large_number(num, currency=""):
+def fmt_volume(num, currency=""):
     if currency == "₹":
-        if abs(num) >= 1e7:
-            return f"₹{num/1e7:.2f} Cr"
-        elif abs(num) >= 1e5:
-            return f"₹{num/1e5:.2f} L"
-        else:
-            return f"₹{num:,.2f}"
-    elif currency == "$":
-        if abs(num) >= 1e9:
-            return f"${num/1e9:.2f}B"
-        elif abs(num) >= 1e6:
-            return f"${num/1e6:.2f}M"
-        elif abs(num) >= 1e3:
-            return f"${num/1e3:.1f}K"
-        else:
-            return f"${num:,.2f}"
-    else:
-        return f"{num:,.0f}"
+        if abs(num) >= 1e7: return f"₹{num/1e7:.2f}Cr"
+        if abs(num) >= 1e5: return f"₹{num/1e5:.2f}L"
+        return f"₹{num:,.0f}"
+    if abs(num) >= 1e9: return f"{num/1e9:.2f}B"
+    if abs(num) >= 1e6: return f"{num/1e6:.2f}M"
+    if abs(num) >= 1e3: return f"{num/1e3:.1f}K"
+    return f"{num:,.0f}"
 
 
-def get_chart_layout(height=500, title=None):
-    layout = dict(
-        height=height,
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=0, t=30 if not title else 50, b=0),
+def chart_layout(height=500):
+    return dict(
+        height=height, template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=0, r=0, t=20, b=0),
         font=dict(family="Inter", color="#94a3b8"),
         yaxis=dict(gridcolor="rgba(255,255,255,0.04)"),
         xaxis=dict(gridcolor="rgba(255,255,255,0.04)"),
-        legend=dict(
-            orientation="h", yanchor="bottom", y=1.02,
-            xanchor="right", x=1, bgcolor="rgba(0,0,0,0)"
-        )
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(0,0,0,0)")
     )
-    if title:
-        layout["title"] = dict(text=title, font=dict(size=16))
-    return layout
-
-
-# ======================================================
-# HERO HEADER
-# ======================================================
-
-st.markdown("""
-<div class="hero-header">
-    <p class="hero-title">📈 AI Stock & Crypto Predictor</p>
-    <p class="hero-subtitle">
-        <span class="live-dot"></span>
-        Real-Time Market Data • NSE • BSE • US Stocks • Crypto • Global Indices • LSTM Deep Learning
-    </p>
-</div>
-""", unsafe_allow_html=True)
 
 
 # ======================================================
@@ -630,174 +594,134 @@ st.markdown("""
 # ======================================================
 
 with st.sidebar:
-    st.markdown('<p class="sidebar-header">⚡ Market Terminal</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sidebar-header">⚡ Live Terminal</p>', unsafe_allow_html=True)
 
-    # --- Real-Time Mode ---
-    st.markdown('<p class="sidebar-header" style="font-size: 1rem;">🔴 Real-Time Mode</p>', unsafe_allow_html=True)
-
-    realtime_mode = st.toggle("Enable Real-Time", value=False, help="Auto-refresh data every 30 seconds")
+    # Real-time controls
+    realtime_mode = st.toggle("🔴 Real-Time Mode", value=True)
 
     if realtime_mode:
-        refresh_rate = st.select_slider(
-            "Refresh Interval",
-            options=[15, 30, 60, 120, 300],
-            value=30,
-            format_func=lambda x: f"{x}s" if x < 60 else f"{x//60}m"
+        refresh_sec = st.select_slider(
+            "Refresh Rate",
+            options=[5, 10, 15, 30, 60],
+            value=10,
+            format_func=lambda x: f"{x}s"
         )
-        st.markdown(f"""
-        <div class="realtime-status">
-            <span class="live-dot"></span>
-            <span style="color: #10b981; font-weight: 600; font-size: 0.85rem;">LIVE — Refreshing every {refresh_rate}s</span>
-        </div>
-        """, unsafe_allow_html=True)
-        # Auto-refresh
-        st_autorefresh(interval=refresh_rate * 1000, key="data_refresh")
+        st.markdown(f'<div class="rt-indicator"><span class="live-dot"></span><span style="color:#10b981;font-weight:600;font-size:0.8rem;">LIVE — Every {refresh_sec}s</span></div>', unsafe_allow_html=True)
+        count = st_autorefresh(interval=refresh_sec * 1000, key="live_refresh")
     else:
-        st.markdown("""
-        <div class="realtime-status-off">
-            <span style="color: var(--text-muted); font-size: 0.85rem;">⏸️ Manual mode — pull to refresh</span>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('<div class="rt-indicator-off"><span style="color:var(--text-muted);font-size:0.8rem;">⏸ Manual Mode</span></div>', unsafe_allow_html=True)
 
     st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
 
-    # --- Market Selection ---
+    # Market
     market = st.selectbox(
-        "🌐 Choose Market",
+        "🌐 Market",
         list(MARKETS.keys()),
         format_func=lambda x: f"{MARKETS[x]['icon']} {MARKETS[x]['label']}"
     )
+    mkt = MARKETS[market]
+    currency = mkt["currency"]
 
-    market_info = MARKETS[market]
-    currency = market_info["currency"]
-
-    # --- Stock/Asset Selection ---
+    # Asset
     if market == "INDEX":
-        asset_name = st.selectbox(
-            "📊 Choose Index",
-            list(market_info["stocks"].keys())
-        )
-        ticker = market_info["stocks"][asset_name]
-    elif market == "CRYPTO":
-        asset_name = st.selectbox(
-            "🪙 Choose Crypto",
-            list(market_info["stocks"].keys())
-        )
-        custom_symbol = st.text_input(
-            "🔍 Or Enter Crypto Symbol",
-            market_info["stocks"][asset_name]
-        )
-        ticker = custom_symbol.upper() + market_info["suffix"]
+        asset_name = st.selectbox("📊 Index", list(mkt["stocks"].keys()))
+        ticker = mkt["stocks"][asset_name]
     else:
-        asset_name = st.selectbox(
-            "⭐ Popular Stocks",
-            list(market_info["stocks"].keys())
-        )
-        custom_symbol = st.text_input(
-            "🔍 Or Enter Symbol",
-            market_info["stocks"][asset_name]
-        )
-        ticker = custom_symbol.upper() + market_info["suffix"]
+        asset_name = st.selectbox("⭐ Asset", list(mkt["stocks"].keys()))
+        custom = st.text_input("🔍 Or type symbol", mkt["stocks"][asset_name])
+        ticker = custom.upper() + mkt["suffix"]
 
     st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
 
-    # --- Data Interval ---
+    # Interval
     if realtime_mode:
-        interval_name = st.selectbox(
-            "⏱️ Chart Interval",
-            ["1 Minute", "2 Minutes", "5 Minutes", "15 Minutes", "30 Minutes", "1 Hour"],
-            index=2
+        rt_interval = st.selectbox(
+            "⏱️ Candle Size",
+            ["1m", "2m", "5m", "15m", "30m", "1h"],
+            index=0,
+            format_func=lambda x: {"1m": "1 Min", "2m": "2 Min", "5m": "5 Min", "15m": "15 Min", "30m": "30 Min", "1h": "1 Hour"}[x]
         )
-        interval = INTERVALS[interval_name]
-        period = INTRADAY_PERIODS.get(interval_name, "5d")
+        # yfinance max periods for intraday
+        rt_period_map = {"1m": "1d", "2m": "5d", "5m": "5d", "15m": "1mo", "30m": "1mo", "1h": "6mo"}
+        interval = rt_interval
+        period = rt_period_map[rt_interval]
+        use_period = True
     else:
-        interval_name = st.selectbox(
-            "⏱️ Chart Interval",
-            list(INTERVALS.keys()),
-            index=6  # Default: 1 Day
+        hist_interval = st.selectbox(
+            "⏱️ Interval",
+            ["1m", "2m", "5m", "15m", "30m", "1h", "1d", "1wk", "1mo"],
+            index=6,
+            format_func=lambda x: {"1m":"1 Min","2m":"2 Min","5m":"5 Min","15m":"15 Min","30m":"30 Min","1h":"1 Hour","1d":"1 Day","1wk":"1 Week","1mo":"1 Month"}[x]
         )
-        interval = INTERVALS[interval_name]
-
+        interval = hist_interval
         if interval in ["1m", "2m", "5m", "15m", "30m", "1h"]:
-            period = INTRADAY_PERIODS.get(interval_name, "5d")
+            period = {"1m":"1d","2m":"5d","5m":"5d","15m":"1mo","30m":"1mo","1h":"6mo"}[interval]
+            use_period = True
         else:
-            start_date = st.date_input("📅 Start Date", pd.to_datetime("2020-01-01"))
-            end_date = st.date_input("📅 End Date", pd.to_datetime("today"))
-            period = None  # Will use start/end dates
+            start_date = st.date_input("📅 From", pd.to_datetime("2020-01-01"))
+            end_date = st.date_input("📅 To", pd.to_datetime("today"))
+            use_period = False
 
     st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
 
-    # --- Stock Comparison ---
-    st.markdown('<p class="sidebar-header" style="font-size: 1rem;">🔄 Compare</p>', unsafe_allow_html=True)
-    enable_compare = st.checkbox("Enable Comparison", value=False)
-
+    # Comparison
+    enable_compare = st.checkbox("🔄 Compare", value=False)
     if enable_compare:
-        compare_market = st.selectbox(
-            "Compare Market",
-            list(MARKETS.keys()),
-            format_func=lambda x: f"{MARKETS[x]['icon']} {MARKETS[x]['label']}",
-            key="compare_market"
-        )
-        compare_info = MARKETS[compare_market]
-        compare_asset = st.selectbox(
-            "Compare With",
-            list(compare_info["stocks"].keys()),
-            key="compare_asset"
-        )
-        if compare_market == "INDEX":
-            compare_ticker = compare_info["stocks"][compare_asset]
-        else:
-            compare_ticker = compare_info["stocks"][compare_asset] + compare_info["suffix"]
+        cmp_market = st.selectbox("Compare Market", list(MARKETS.keys()),
+            format_func=lambda x: f"{MARKETS[x]['icon']} {MARKETS[x]['label']}", key="cmp_mkt")
+        cmp_info = MARKETS[cmp_market]
+        cmp_asset = st.selectbox("Compare With", list(cmp_info["stocks"].keys()), key="cmp_ast")
+        compare_ticker = cmp_info["stocks"][cmp_asset] + cmp_info["suffix"] if cmp_market != "INDEX" else cmp_info["stocks"][cmp_asset]
 
     st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
-    st.markdown(f"""
-    <div style="text-align: center; padding: 0.5rem 0;">
-        <p style="color: var(--text-muted); font-size: 0.75rem;">
-            Built with ❤️ by <span class="footer-brand">Sarthak Uniyal</span><br>
-            Last refresh: {datetime.now().strftime('%H:%M:%S')}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    now_str = datetime.now().strftime('%H:%M:%S')
+    st.markdown(f'<div style="text-align:center;"><p style="color:var(--text-muted);font-size:0.7rem;">Built by <span class="footer-brand">Sarthak Uniyal</span><br>⏱ {now_str}</p></div>', unsafe_allow_html=True)
 
 
 # ======================================================
-# DOWNLOAD DATA
+# FETCH DATA (NO CACHE in real-time for truly live data)
 # ======================================================
 
-@st.cache_data(ttl=30 if realtime_mode else 300)
-def fetch_data(ticker, interval, period=None, start=None, end=None):
-    """Fetch stock/crypto data with caching."""
+def fetch_live(ticker, interval, period=None, start=None, end=None):
+    """Fetch data without caching for real-time freshness."""
     try:
         if period:
-            data = yf.download(ticker, period=period, interval=interval, auto_adjust=True)
+            df = yf.download(ticker, period=period, interval=interval, auto_adjust=True, progress=False)
         else:
-            data = yf.download(ticker, start=start, end=end, interval=interval, auto_adjust=True)
-
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-
+            df = yf.download(ticker, start=start, end=end, interval=interval, auto_adjust=True, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         for col in ["Open", "High", "Low", "Close", "Volume"]:
-            if col in data.columns:
-                if isinstance(data[col], pd.DataFrame):
-                    data[col] = data[col].iloc[:, 0]
-        return data
-    except Exception as e:
+            if col in df.columns and isinstance(df[col], pd.DataFrame):
+                df[col] = df[col].iloc[:, 0]
+        return df
+    except Exception:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=300)
+def fetch_cached(ticker, interval, period=None, start=None, end=None):
+    """Cached version for historical/non-realtime data."""
+    return fetch_live(ticker, interval, period, start, end)
+
+
 with st.spinner("⚡ Fetching live market data..."):
-    if interval in ["1m", "2m", "5m", "15m", "30m", "1h"] or period:
-        data = fetch_data(ticker, interval, period=period)
+    if realtime_mode:
+        # No cache — always fresh
+        data = fetch_live(ticker, interval, period=period)
     else:
-        data = fetch_data(ticker, interval, start=start_date, end=end_date)
+        if use_period:
+            data = fetch_cached(ticker, interval, period=period)
+        else:
+            data = fetch_cached(ticker, interval, start=str(start_date), end=str(end_date))
 
 if data.empty:
-    st.error("❌ No data found. Please check the symbol and try again.")
+    st.error("❌ No data found. Check the symbol and try again.")
     st.stop()
 
 
 # ======================================================
-# COMPUTE METRICS
+# COMPUTE LIVE METRICS
 # ======================================================
 
 close_arr = np.array(data["Close"]).flatten()
@@ -808,87 +732,92 @@ pct_change = (price_change / prev_price) * 100 if prev_price != 0 else 0
 
 day_high = float(np.array(data["High"]).flatten()[-1])
 day_low = float(np.array(data["Low"]).flatten()[-1])
-day_open = float(np.array(data["Open"]).flatten()[-1])
+day_open = float(np.array(data["Open"]).flatten()[0])  # First candle open = session open
 
-vol_arr = np.array(data["Volume"]).flatten() if "Volume" in data.columns else None
-volume = float(vol_arr[-1]) if vol_arr is not None and len(vol_arr) > 0 else 0
-
-# Session high/low (all data in current view)
 session_high = float(np.array(data["High"]).flatten().max())
 session_low = float(np.array(data["Low"]).flatten().min())
 
-# Display name
+vol_arr = np.array(data["Volume"]).flatten() if "Volume" in data.columns else None
+volume = float(vol_arr.sum()) if vol_arr is not None else 0  # Total session volume
+last_vol = float(vol_arr[-1]) if vol_arr is not None and len(vol_arr) > 0 else 0
+
 display_name = ticker.replace(".NS", "").replace(".BO", "").replace("-USD", "")
-delta_class = "metric-delta-up" if price_change >= 0 else "metric-delta-down"
-delta_icon = "▲" if price_change >= 0 else "▼"
-market_icon = MARKETS[market]["icon"]
+is_up = price_change >= 0
+
 
 # ======================================================
-# STOCK INFO BAR
+# LIVE PRICE TICKER BANNER
 # ======================================================
 
-rt_badge = '<span class="section-badge-live"><span class="live-dot"></span> LIVE</span>' if realtime_mode else '<span class="section-badge">DELAYED</span>'
+price_class = "ticker-price-up" if is_up else "ticker-price-down"
+delta_icon = "▲" if is_up else "▼"
+delta_color = "#10b981" if is_up else "#ef4444"
+flash_class = "flash-up" if is_up else "flash-down"
+market_status_html = get_market_status_html(market)
 
 st.markdown(f"""
-<div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
-    <span style="font-size: 1.5rem; font-weight: 800; color: var(--text-primary);">{market_icon} {display_name}</span>
-    {rt_badge}
-    <span style="color: var(--text-muted); font-size: 0.9rem;">{MARKETS[market]['label']} • {interval_name}</span>
-    <span style="color: var(--text-muted); font-size: 0.8rem;">Updated: {datetime.now().strftime('%H:%M:%S')}</span>
+<div class="live-ticker {flash_class}">
+    <div class="ticker-row">
+        <div class="ticker-left">
+            <span class="ticker-symbol">{mkt['icon']} {display_name}</span>
+            <span class="ticker-market-badge">{mkt['label']}</span>
+            {market_status_html}
+        </div>
+        <div style="display:flex; align-items:baseline; gap: 0.5rem;">
+            <span class="ticker-price {price_class}">{fmt_price(latest_price, currency)}</span>
+            <span class="ticker-change" style="color:{delta_color}">
+                {delta_icon} {abs(price_change):.2f} ({abs(pct_change):.2f}%)
+            </span>
+        </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:0.6rem;position:relative;z-index:1;">
+        <span class="ticker-time">Open: {fmt_price(day_open, currency)}</span>
+        <span class="ticker-time">High: {fmt_price(session_high, currency)}</span>
+        <span class="ticker-time">Low: {fmt_price(session_low, currency)}</span>
+        <span class="ticker-time">Vol: {fmt_volume(volume, currency)}</span>
+        <span class="ticker-time"><span class="live-dot"></span>{datetime.now().strftime('%H:%M:%S')}</span>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Metric cards
-col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-with col1:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Current Price</div>
-        <div class="metric-value">{format_price(latest_price, currency)}</div>
-        <div class="{delta_class}">{delta_icon} {abs(price_change):.2f} ({abs(pct_change):.2f}%)</div>
-    </div>
-    """, unsafe_allow_html=True)
+# ======================================================
+# MINI METRICS ROW
+# ======================================================
 
-with col2:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Open</div>
-        <div class="metric-value">{format_price(day_open, currency)}</div>
-    </div>
-    """, unsafe_allow_html=True)
+m1, m2, m3, m4, m5, m6, m7, m8 = st.columns(8)
+open_change = ((latest_price - day_open) / day_open) * 100 if day_open != 0 else 0
+spread = session_high - session_low
+spread_pct = (spread / session_low) * 100 if session_low != 0 else 0
 
-with col3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">High</div>
-        <div class="metric-value">{format_price(day_high, currency)}</div>
-    </div>
-    """, unsafe_allow_html=True)
+# VWAP (if volume available)
+if vol_arr is not None and volume > 0:
+    typical = (np.array(data["High"]).flatten() + np.array(data["Low"]).flatten() + close_arr) / 3
+    vwap = float(np.sum(typical * vol_arr) / np.sum(vol_arr))
+else:
+    vwap = latest_price
 
-with col4:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Low</div>
-        <div class="metric-value">{format_price(day_low, currency)}</div>
-    </div>
-    """, unsafe_allow_html=True)
+metrics = [
+    ("Open", fmt_price(day_open, currency), None),
+    ("High", fmt_price(session_high, currency), None),
+    ("Low", fmt_price(session_low, currency), None),
+    ("Spread", f"{spread_pct:.2f}%", None),
+    ("VWAP", fmt_price(vwap, currency), None),
+    ("Candle Vol", fmt_volume(last_vol, currency), None),
+    ("Total Vol", fmt_volume(volume, currency), None),
+    ("From Open", f"{'+' if open_change>=0 else ''}{open_change:.2f}%",
+     "metric-delta-up" if open_change >= 0 else "metric-delta-down"),
+]
 
-with col5:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Session High</div>
-        <div class="metric-value">{format_price(session_high, currency)}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col6:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Volume</div>
-        <div class="metric-value">{format_large_number(volume, currency) if volume > 0 else 'N/A'}</div>
-    </div>
-    """, unsafe_allow_html=True)
+for col, (label, value, cls) in zip([m1, m2, m3, m4, m5, m6, m7, m8], metrics):
+    with col:
+        delta_html = f'<div class="{cls}">{value}</div>' if cls else f'<div class="metric-value" style="font-size:1.1rem;">{value}</div>'
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            {delta_html}
+        </div>
+        """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -898,33 +827,22 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ======================================================
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📊 Charts",
-    "📈 Indicators",
-    "🤖 AI Prediction",
-    "📰 News",
-    "🔄 Comparison",
-    "📋 Data"
+    "📊 Live Chart", "📈 Indicators", "🤖 AI Predict",
+    "📰 News", "🔄 Compare", "📋 Data"
 ])
 
 
 # ======================================================
-# TAB 1: CHARTS
+# TAB 1: LIVE CHART
 # ======================================================
 
 with tab1:
-    rt_label = '<span class="section-badge-live"><span class="live-dot"></span> REAL-TIME</span>' if realtime_mode else '<span class="section-badge">INTERACTIVE</span>'
-    st.markdown(f"""
-    <div class="section-header">
-        📊 Price Chart {rt_label}
-    </div>
-    """, unsafe_allow_html=True)
+    live_badge = '<span class="badge-live"><span class="live-dot"></span>STREAMING</span>' if realtime_mode else '<span class="section-badge">INTERACTIVE</span>'
+    st.markdown(f'<div class="section-header">📊 Price Action {live_badge}</div>', unsafe_allow_html=True)
 
-    chart_type = st.radio("Chart Type", ["Candlestick", "Line", "Area"], horizontal=True)
+    chart_type = st.radio("Style", ["Candlestick", "Line", "Area"], horizontal=True, key="ct")
 
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        vertical_spacing=0.03, row_heights=[0.75, 0.25]
-    )
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
 
     if chart_type == "Candlestick":
         fig.add_trace(go.Candlestick(
@@ -944,21 +862,44 @@ with tab1:
         fig.add_trace(go.Scatter(
             x=data.index, y=data["Close"], mode="lines",
             line=dict(color="#6C63FF", width=2),
-            fill="tozeroy", fillcolor="rgba(108,99,255,0.15)", name="Close"
+            fill="tozeroy", fillcolor="rgba(108,99,255,0.12)", name="Close"
         ), row=1, col=1)
 
+    # VWAP line on chart
+    if vol_arr is not None and volume > 0:
+        typical_p = (np.array(data["High"]).flatten() + np.array(data["Low"]).flatten() + close_arr) / 3
+        cumvol = np.cumsum(vol_arr)
+        running_vwap = np.cumsum(typical_p * vol_arr) / np.where(cumvol == 0, 1, cumvol)
+        fig.add_trace(go.Scatter(
+            x=data.index, y=running_vwap, mode="lines",
+            line=dict(color="#f59e0b", width=1.5, dash="dot"),
+            name="VWAP", opacity=0.7
+        ), row=1, col=1)
+
+    # Volume bars
     if "Volume" in data.columns:
-        colors = ["#10b981" if c >= o else "#ef4444" for c, o in zip(data["Close"], data["Open"])]
+        vcolors = ["#10b981" if c >= o else "#ef4444" for c, o in zip(data["Close"], data["Open"])]
         fig.add_trace(go.Bar(
             x=data.index, y=data["Volume"],
-            marker_color=colors, opacity=0.5, name="Volume", showlegend=False
+            marker_color=vcolors, opacity=0.5, name="Volume", showlegend=False
         ), row=2, col=1)
 
-    layout = get_chart_layout(700)
-    layout["xaxis_rangeslider_visible"] = False
-    layout["yaxis"] = dict(gridcolor="rgba(255,255,255,0.04)", title=f"Price ({currency})")
-    layout["yaxis2"] = dict(gridcolor="rgba(255,255,255,0.04)", title="Volume")
-    fig.update_layout(**layout)
+    # Latest price horizontal line
+    fig.add_hline(y=latest_price, line_dash="dash", line_color="rgba(108,99,255,0.4)",
+                  annotation_text=f"  {fmt_price(latest_price, currency)}",
+                  annotation_font_color="#a78bfa", row=1, col=1)
+
+    ly = chart_layout(700)
+    ly["xaxis_rangeslider_visible"] = False
+    ly["yaxis"] = dict(gridcolor="rgba(255,255,255,0.04)", title=f"Price ({currency})")
+    ly["yaxis2"] = dict(gridcolor="rgba(255,255,255,0.04)", title="Volume")
+    fig.update_layout(**ly)
+
+    # For intraday, remove weekend gaps
+    if interval in ["1m", "2m", "5m", "15m", "30m", "1h"]:
+        fig.update_xaxes(type="category", nticks=20, row=1, col=1)
+        fig.update_xaxes(type="category", nticks=20, row=2, col=1)
+
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -967,78 +908,60 @@ with tab1:
 # ======================================================
 
 with tab2:
-    ind_tabs = st.tabs(["Moving Averages", "RSI", "MACD", "Bollinger Bands"])
+    itabs = st.tabs(["Moving Averages", "RSI", "MACD", "Bollinger"])
 
-    with ind_tabs[0]:
-        st.markdown("""<div class="section-header">📉 Moving Averages <span class="section-badge">MA50 • MA100 • MA200</span></div>""", unsafe_allow_html=True)
-
-        ma50 = data["Close"].rolling(50).mean()
-        ma100 = data["Close"].rolling(100).mean()
-        ma200 = data["Close"].rolling(200).mean()
-
+    with itabs[0]:
+        st.markdown('<div class="section-header">📉 Moving Averages <span class="section-badge">MA50•MA100•MA200</span></div>', unsafe_allow_html=True)
         fig_ma = go.Figure()
         fig_ma.add_trace(go.Scatter(x=data.index, y=data["Close"], name="Close", line=dict(color="#e2e8f0", width=1.5)))
-        fig_ma.add_trace(go.Scatter(x=data.index, y=ma50, name="MA50", line=dict(color="#6C63FF", width=2)))
-        fig_ma.add_trace(go.Scatter(x=data.index, y=ma100, name="MA100", line=dict(color="#a78bfa", width=2)))
-        fig_ma.add_trace(go.Scatter(x=data.index, y=ma200, name="MA200", line=dict(color="#c084fc", width=2, dash="dot")))
-        fig_ma.update_layout(**get_chart_layout(500))
+        for ma, col, clr in [(50,"MA50","#6C63FF"), (100,"MA100","#a78bfa"), (200,"MA200","#c084fc")]:
+            vals = data["Close"].rolling(ma).mean()
+            fig_ma.add_trace(go.Scatter(x=data.index, y=vals, name=col, line=dict(color=clr, width=2)))
+        fig_ma.update_layout(**chart_layout(450))
         st.plotly_chart(fig_ma, use_container_width=True)
 
-    with ind_tabs[1]:
-        st.markdown("""<div class="section-header">📊 Relative Strength Index <span class="section-badge">RSI-14</span></div>""", unsafe_allow_html=True)
-
+    with itabs[1]:
+        st.markdown('<div class="section-header">📊 RSI <span class="section-badge">14-Period</span></div>', unsafe_allow_html=True)
         rsi = calculate_rsi(data["Close"])
-        current_rsi = float(rsi.dropna().iloc[-1]) if not rsi.dropna().empty else 50
-        rsi_color = "#10b981" if 30 < current_rsi < 70 else ("#ef4444" if current_rsi >= 70 else "#3b82f6")
-        rsi_status = "Neutral" if 30 < current_rsi < 70 else ("Overbought" if current_rsi >= 70 else "Oversold")
-
-        st.markdown(f"""
-        <div class="glass-card" style="text-align: center; margin-bottom: 1rem;">
-            <span style="font-size: 2rem; font-weight: 700; color: {rsi_color};">{current_rsi:.1f}</span>
-            <span style="color: {rsi_color}; font-weight: 600;"> — {rsi_status}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        cur_rsi = float(rsi.dropna().iloc[-1]) if not rsi.dropna().empty else 50
+        rc = "#10b981" if 30 < cur_rsi < 70 else ("#ef4444" if cur_rsi >= 70 else "#3b82f6")
+        rs = "Neutral" if 30 < cur_rsi < 70 else ("Overbought" if cur_rsi >= 70 else "Oversold")
+        st.markdown(f'<div class="glass-card" style="text-align:center;margin-bottom:1rem;"><span style="font-size:2rem;font-weight:700;color:{rc};">{cur_rsi:.1f}</span> <span style="color:{rc};font-weight:600;">— {rs}</span></div>', unsafe_allow_html=True)
 
         fig_rsi = go.Figure()
         fig_rsi.add_trace(go.Scatter(x=data.index, y=rsi, line=dict(color="#a78bfa", width=2), name="RSI"))
-        fig_rsi.add_hline(y=70, line_dash="dash", line_color="rgba(239,68,68,0.5)", annotation_text="Overbought (70)")
-        fig_rsi.add_hline(y=30, line_dash="dash", line_color="rgba(59,130,246,0.5)", annotation_text="Oversold (30)")
+        fig_rsi.add_hline(y=70, line_dash="dash", line_color="rgba(239,68,68,0.5)", annotation_text="70")
+        fig_rsi.add_hline(y=30, line_dash="dash", line_color="rgba(59,130,246,0.5)", annotation_text="30")
         fig_rsi.add_hrect(y0=30, y1=70, fillcolor="rgba(108,99,255,0.05)", line_width=0)
-        layout_rsi = get_chart_layout(400)
-        layout_rsi["yaxis"]["range"] = [0, 100]
-        fig_rsi.update_layout(**layout_rsi)
+        l = chart_layout(380)
+        l["yaxis"]["range"] = [0, 100]
+        fig_rsi.update_layout(**l)
         st.plotly_chart(fig_rsi, use_container_width=True)
 
-    with ind_tabs[2]:
-        st.markdown("""<div class="section-header">📈 MACD <span class="section-badge">12-26-9</span></div>""", unsafe_allow_html=True)
+    with itabs[2]:
+        st.markdown('<div class="section-header">📈 MACD <span class="section-badge">12-26-9</span></div>', unsafe_allow_html=True)
+        ml, sl, hist = calculate_macd(data["Close"])
+        fig_m = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.6, 0.4])
+        fig_m.add_trace(go.Scatter(x=data.index, y=data["Close"], line=dict(color="#e2e8f0", width=1.5), name="Price"), row=1, col=1)
+        fig_m.add_trace(go.Scatter(x=data.index, y=ml, line=dict(color="#6C63FF", width=2), name="MACD"), row=2, col=1)
+        fig_m.add_trace(go.Scatter(x=data.index, y=sl, line=dict(color="#ef4444", width=1.5), name="Signal"), row=2, col=1)
+        hc = ["#10b981" if h >= 0 else "#ef4444" for h in hist]
+        fig_m.add_trace(go.Bar(x=data.index, y=hist, marker_color=hc, opacity=0.6, showlegend=False), row=2, col=1)
+        lm = chart_layout(550)
+        lm["yaxis2"] = dict(gridcolor="rgba(255,255,255,0.04)")
+        fig_m.update_layout(**lm)
+        st.plotly_chart(fig_m, use_container_width=True)
 
-        macd_line, signal_line, histogram = calculate_macd(data["Close"])
-
-        fig_macd = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.6, 0.4])
-        fig_macd.add_trace(go.Scatter(x=data.index, y=data["Close"], line=dict(color="#e2e8f0", width=1.5), name="Price"), row=1, col=1)
-        fig_macd.add_trace(go.Scatter(x=data.index, y=macd_line, line=dict(color="#6C63FF", width=2), name="MACD"), row=2, col=1)
-        fig_macd.add_trace(go.Scatter(x=data.index, y=signal_line, line=dict(color="#ef4444", width=1.5), name="Signal"), row=2, col=1)
-
-        hist_colors = ["#10b981" if h >= 0 else "#ef4444" for h in histogram]
-        fig_macd.add_trace(go.Bar(x=data.index, y=histogram, marker_color=hist_colors, opacity=0.6, name="Histogram", showlegend=False), row=2, col=1)
-
-        layout_macd = get_chart_layout(600)
-        layout_macd["yaxis2"] = dict(gridcolor="rgba(255,255,255,0.04)")
-        fig_macd.update_layout(**layout_macd)
-        st.plotly_chart(fig_macd, use_container_width=True)
-
-    with ind_tabs[3]:
-        st.markdown("""<div class="section-header">📉 Bollinger Bands <span class="section-badge">20-Day SMA ± 2σ</span></div>""", unsafe_allow_html=True)
-
+    with itabs[3]:
+        st.markdown('<div class="section-header">📉 Bollinger Bands <span class="section-badge">20-SMA ± 2σ</span></div>', unsafe_allow_html=True)
         upper, middle, lower = calculate_bollinger(data["Close"])
-
-        fig_bb = go.Figure()
-        fig_bb.add_trace(go.Scatter(x=data.index, y=upper, name="Upper", line=dict(color="rgba(239,68,68,0.5)", width=1)))
-        fig_bb.add_trace(go.Scatter(x=data.index, y=lower, name="Lower", line=dict(color="rgba(59,130,246,0.5)", width=1), fill="tonexty", fillcolor="rgba(108,99,255,0.05)"))
-        fig_bb.add_trace(go.Scatter(x=data.index, y=middle, name="SMA 20", line=dict(color="#a78bfa", width=1.5, dash="dot")))
-        fig_bb.add_trace(go.Scatter(x=data.index, y=data["Close"], name="Close", line=dict(color="#e2e8f0", width=1.5)))
-        fig_bb.update_layout(**get_chart_layout(500))
-        st.plotly_chart(fig_bb, use_container_width=True)
+        fig_b = go.Figure()
+        fig_b.add_trace(go.Scatter(x=data.index, y=upper, name="Upper", line=dict(color="rgba(239,68,68,0.5)", width=1)))
+        fig_b.add_trace(go.Scatter(x=data.index, y=lower, name="Lower", line=dict(color="rgba(59,130,246,0.5)", width=1), fill="tonexty", fillcolor="rgba(108,99,255,0.05)"))
+        fig_b.add_trace(go.Scatter(x=data.index, y=middle, name="SMA20", line=dict(color="#a78bfa", width=1.5, dash="dot")))
+        fig_b.add_trace(go.Scatter(x=data.index, y=data["Close"], name="Close", line=dict(color="#e2e8f0", width=1.5)))
+        fig_b.update_layout(**chart_layout(450))
+        st.plotly_chart(fig_b, use_container_width=True)
 
 
 # ======================================================
@@ -1046,131 +969,97 @@ with tab2:
 # ======================================================
 
 with tab3:
-    st.markdown("""<div class="section-header">🤖 AI Prediction Engine <span class="section-badge">LSTM DEEP LEARNING</span></div>""", unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🤖 AI Prediction <span class="section-badge">LSTM</span></div>', unsafe_allow_html=True)
 
     try:
         if not TF_AVAILABLE:
-            st.warning("⚠️ TensorFlow not installed. Install with: `pip install tensorflow`")
+            st.warning("⚠️ TensorFlow not installed.")
             st.stop()
 
-        # Need daily data for predictions
-        pred_data = fetch_data(ticker, "1d", start="2015-01-01", end=datetime.now().strftime("%Y-%m-%d"))
-
+        pred_data = fetch_cached(ticker, "1d", start="2015-01-01", end=datetime.now().strftime("%Y-%m-%d"))
         if pred_data.empty or len(pred_data) < 120:
-            st.warning("⚠️ Need at least 120 days of historical data for AI prediction.")
+            st.warning("⚠️ Need ≥120 days of daily data for AI prediction.")
             st.stop()
 
         model = load_model("model/stock_lstm_model.keras")
-
         close_data = pred_data[["Close"]]
         scaler = MinMaxScaler()
-        scaled_data = scaler.fit_transform(close_data)
+        scaled = scaler.fit_transform(close_data)
 
-        x_test, y_test = [], []
-        for i in range(100, len(scaled_data)):
-            x_test.append(scaled_data[i - 100:i])
-            y_test.append(scaled_data[i])
+        x_t, y_t = [], []
+        for i in range(100, len(scaled)):
+            x_t.append(scaled[i-100:i])
+            y_t.append(scaled[i])
+        x_t, y_t = np.array(x_t), np.array(y_t)
 
-        x_test = np.array(x_test)
-        y_test = np.array(y_test)
+        with st.spinner("🧠 Running LSTM..."):
+            preds = scaler.inverse_transform(model.predict(x_t, verbose=0))
+        actuals = scaler.inverse_transform(y_t)
+        dates = pred_data.index[-len(actuals):]
 
-        with st.spinner("🧠 Running LSTM model inference..."):
-            predictions = model.predict(x_test, verbose=0)
+        fig_p = go.Figure()
+        fig_p.add_trace(go.Scatter(x=dates, y=actuals.flatten(), name="Actual", line=dict(color="#e2e8f0", width=2)))
+        fig_p.add_trace(go.Scatter(x=dates, y=preds.flatten(), name="Predicted", line=dict(color="#6C63FF", width=2)))
+        fig_p.update_layout(**chart_layout(450))
+        st.plotly_chart(fig_p, use_container_width=True)
 
-        predictions = scaler.inverse_transform(predictions)
-        actual_prices = scaler.inverse_transform(y_test)
-
-        dates = pred_data.index[-len(actual_prices):]
-
-        fig_pred = go.Figure()
-        fig_pred.add_trace(go.Scatter(x=dates, y=actual_prices.flatten(), name="Actual", line=dict(color="#e2e8f0", width=2)))
-        fig_pred.add_trace(go.Scatter(x=dates, y=predictions.flatten(), name="Predicted", line=dict(color="#6C63FF", width=2)))
-        fig_pred.update_layout(**get_chart_layout(500))
-        st.plotly_chart(fig_pred, use_container_width=True)
-
-        # Next-Day
-        last_100 = scaled_data[-100:]
-        future_input = np.reshape(last_100, (1, 100, 1))
-        next_day = model.predict(future_input, verbose=0)
-        next_day_price = scaler.inverse_transform(next_day)[0][0]
-
-        is_bullish = next_day_price >= latest_price
-        banner_class = "" if is_bullish else " bearish"
-        banner_icon = "🚀" if is_bullish else "📉"
-        trend_text = "BULLISH" if is_bullish else "BEARISH"
-        change_val = next_day_price - latest_price
-        change_pct = (change_val / latest_price) * 100
+        # Next day
+        fut = np.reshape(scaled[-100:], (1, 100, 1))
+        nd_price = scaler.inverse_transform(model.predict(fut, verbose=0))[0][0]
+        bull = nd_price >= latest_price
+        chg = nd_price - latest_price
+        chg_p = (chg / latest_price) * 100
 
         st.markdown(f"""
-        <div class="prediction-banner{banner_class}">
-            <span class="prediction-icon">{banner_icon}</span>
+        <div class="prediction-banner{'' if bull else ' bearish'}">
+            <span class="prediction-icon">{'🚀' if bull else '📉'}</span>
             <div>
-                <div class="prediction-text">Next Day: {format_price(next_day_price, currency)}</div>
-                <div class="prediction-sub">{trend_text} • {currency}{change_val:+,.2f} ({change_pct:+.2f}%)</div>
+                <div class="prediction-text">Next Day: {fmt_price(nd_price, currency)}</div>
+                <div class="prediction-sub">{'BULLISH' if bull else 'BEARISH'} • {currency}{chg:+,.2f} ({chg_p:+.2f}%)</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Multi-step forecasts
-        st.markdown("""<div class="section-header">🔮 Multi-Step Forecast <span class="section-badge">7 & 30 DAY</span></div>""", unsafe_allow_html=True)
-
-        fc1, fc2 = st.columns(2)
-
-        def run_forecast(days):
-            forecast = []
-            inp = scaled_data[-100:].copy()
+        # Forecasts
+        st.markdown('<div class="section-header">🔮 Forecast <span class="section-badge">7 & 30 DAY</span></div>', unsafe_allow_html=True)
+        def forecast(days):
+            fc, inp = [], scaled[-100:].copy()
             for _ in range(days):
-                x = np.reshape(inp, (1, 100, 1))
-                p = model.predict(x, verbose=0)
-                forecast.append(scaler.inverse_transform(p)[0][0])
+                p = model.predict(np.reshape(inp, (1,100,1)), verbose=0)
+                fc.append(scaler.inverse_transform(p)[0][0])
                 inp = np.append(inp[1:], p, axis=0)
-            return forecast
+            return fc
 
-        forecast_7 = run_forecast(7)
-        forecast_30 = run_forecast(30)
+        f7, f30 = forecast(7), forecast(30)
+        ld = pred_data.index[-1]
+        c1, c2 = st.columns(2)
 
-        last_date = pred_data.index[-1]
+        with c1:
+            st.markdown("#### 📅 7-Day")
+            d7 = pd.date_range(ld + timedelta(1), periods=7, freq='B')
+            fg7 = go.Figure()
+            fg7.add_trace(go.Scatter(x=pred_data.index[-30:], y=pred_data["Close"].iloc[-30:].values.flatten(), name="Hist", line=dict(color="#e2e8f0", width=1.5)))
+            fg7.add_trace(go.Scatter(x=d7, y=f7, name="Forecast", line=dict(color="#10b981", width=2.5, dash="dot"), mode="lines+markers", marker=dict(size=5)))
+            fg7.update_layout(**chart_layout(320))
+            fg7.update_layout(showlegend=False)
+            st.plotly_chart(fg7, use_container_width=True)
+            fc7 = (f7[-1] - latest_price) / latest_price * 100
+            st.markdown(f'<div class="glass-card" style="text-align:center;"><span style="color:{"#10b981" if fc7>=0 else "#ef4444"};font-weight:700;font-size:1.1rem;">{fmt_price(f7[-1],currency)} ({"▲" if fc7>=0 else "▼"}{abs(fc7):.2f}%)</span></div>', unsafe_allow_html=True)
 
-        with fc1:
-            st.markdown("#### 📅 7-Day Forecast")
-            fd7 = pd.date_range(start=last_date + timedelta(days=1), periods=7, freq='B')
-            fig_f7 = go.Figure()
-            fig_f7.add_trace(go.Scatter(x=pred_data.index[-30:], y=pred_data["Close"].iloc[-30:].values.flatten(), name="History", line=dict(color="#e2e8f0", width=1.5)))
-            fig_f7.add_trace(go.Scatter(x=fd7, y=forecast_7, name="Forecast", line=dict(color="#10b981", width=2.5, dash="dot"), mode="lines+markers", marker=dict(size=6)))
-            fig_f7.update_layout(**get_chart_layout(350))
-            fig_f7.update_layout(showlegend=False)
-            st.plotly_chart(fig_f7, use_container_width=True)
-
-            f7c = forecast_7[-1] - latest_price
-            f7p = (f7c / latest_price) * 100
-            st.markdown(f"""<div class="glass-card" style="text-align:center;"><span style="color:{'#10b981' if f7c>=0 else '#ef4444'};font-weight:700;font-size:1.2rem;">{format_price(forecast_7[-1], currency)} ({'▲' if f7c>=0 else '▼'} {abs(f7p):.2f}%)</span></div>""", unsafe_allow_html=True)
-
-        with fc2:
-            st.markdown("#### 📅 30-Day Forecast")
-            fd30 = pd.date_range(start=last_date + timedelta(days=1), periods=30, freq='B')
-            fig_f30 = go.Figure()
-            fig_f30.add_trace(go.Scatter(x=pred_data.index[-60:], y=pred_data["Close"].iloc[-60:].values.flatten(), name="History", line=dict(color="#e2e8f0", width=1.5)))
-            fig_f30.add_trace(go.Scatter(x=fd30, y=forecast_30, name="Forecast", line=dict(color="#c084fc", width=2.5, dash="dot"), mode="lines+markers", marker=dict(size=4)))
-            fig_f30.update_layout(**get_chart_layout(350))
-            fig_f30.update_layout(showlegend=False)
-            st.plotly_chart(fig_f30, use_container_width=True)
-
-            f30c = forecast_30[-1] - latest_price
-            f30p = (f30c / latest_price) * 100
-            st.markdown(f"""<div class="glass-card" style="text-align:center;"><span style="color:{'#10b981' if f30c>=0 else '#ef4444'};font-weight:700;font-size:1.2rem;">{format_price(forecast_30[-1], currency)} ({'▲' if f30c>=0 else '▼'} {abs(f30p):.2f}%)</span></div>""", unsafe_allow_html=True)
+        with c2:
+            st.markdown("#### 📅 30-Day")
+            d30 = pd.date_range(ld + timedelta(1), periods=30, freq='B')
+            fg30 = go.Figure()
+            fg30.add_trace(go.Scatter(x=pred_data.index[-60:], y=pred_data["Close"].iloc[-60:].values.flatten(), name="Hist", line=dict(color="#e2e8f0", width=1.5)))
+            fg30.add_trace(go.Scatter(x=d30, y=f30, name="Forecast", line=dict(color="#c084fc", width=2.5, dash="dot"), mode="lines+markers", marker=dict(size=4)))
+            fg30.update_layout(**chart_layout(320))
+            fg30.update_layout(showlegend=False)
+            st.plotly_chart(fg30, use_container_width=True)
+            fc30 = (f30[-1] - latest_price) / latest_price * 100
+            st.markdown(f'<div class="glass-card" style="text-align:center;"><span style="color:{"#10b981" if fc30>=0 else "#ef4444"};font-weight:700;font-size:1.1rem;">{fmt_price(f30[-1],currency)} ({"▲" if fc30>=0 else "▼"}{abs(fc30):.2f}%)</span></div>', unsafe_allow_html=True)
 
     except Exception as e:
-        st.markdown("""
-        <div class="glass-card">
-            <p style="color: var(--text-secondary);">
-                ⚠️ <strong>Model not loaded.</strong> Place your trained LSTM model at
-                <code>model/stock_lstm_model.keras</code>
-            </p>
-            <p style="color: var(--text-muted); font-size: 0.85rem;">
-                Run <code>python train_model.py</code> to train the model.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('<div class="glass-card"><p style="color:var(--text-secondary);">⚠️ Model not loaded. Run <code>python train_model.py</code></p></div>', unsafe_allow_html=True)
         st.error(f"Error: {e}")
 
 
@@ -1179,39 +1068,19 @@ with tab3:
 # ======================================================
 
 with tab4:
-    st.markdown(f"""
-    <div class="section-header">
-        📰 Market News <span class="section-badge-live"><span class="live-dot"></span> LIVE FEED</span>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown('<div class="section-header">📰 News <span class="badge-live"><span class="live-dot"></span>LIVE</span></div>', unsafe_allow_html=True)
     try:
-        search_term = display_name
-        if market == "CRYPTO":
-            search_term = asset_name + " crypto"
-        elif market == "INDEX":
-            search_term = asset_name + " stock market"
-        else:
-            search_term = display_name + " stock"
-
-        feed = feedparser.parse(
-            f"https://news.google.com/rss/search?q={search_term}"
-        )
-
+        q = f"{asset_name} {'crypto' if market == 'CRYPTO' else 'stock market' if market == 'INDEX' else 'stock'}"
+        feed = feedparser.parse(f"https://news.google.com/rss/search?q={q}")
         if feed.entries:
-            for article in feed.entries[:12]:
-                published = getattr(article, 'published', '')
-                st.markdown(f"""
-                <div class="news-card">
-                    <div class="news-title">📄 {article.title}</div>
-                    <div class="news-meta">{published}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                st.link_button("Read Article →", article.link, use_container_width=False)
+            for a in feed.entries[:12]:
+                pub = getattr(a, 'published', '')
+                st.markdown(f'<div class="news-card"><div class="news-title">📄 {a.title}</div><div class="news-meta">{pub}</div></div>', unsafe_allow_html=True)
+                st.link_button("Read →", a.link)
         else:
-            st.info("No news articles found.")
+            st.info("No news found.")
     except Exception:
-        st.warning("⚠️ Unable to fetch news. Check your internet connection.")
+        st.warning("⚠️ Unable to fetch news.")
 
 
 # ======================================================
@@ -1219,78 +1088,59 @@ with tab4:
 # ======================================================
 
 with tab5:
-    st.markdown("""<div class="section-header">🔄 Stock Comparison <span class="section-badge">HEAD-TO-HEAD</span></div>""", unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🔄 Comparison <span class="section-badge">HEAD-TO-HEAD</span></div>', unsafe_allow_html=True)
 
     if enable_compare:
-        with st.spinner("Fetching comparison data..."):
-            if interval in ["1m", "2m", "5m", "15m", "30m", "1h"] or period:
-                compare_data = fetch_data(compare_ticker, interval, period=period)
+        with st.spinner("Loading..."):
+            if realtime_mode or use_period:
+                cd = fetch_live(compare_ticker, interval, period=period) if realtime_mode else fetch_cached(compare_ticker, interval, period=period)
             else:
-                compare_data = fetch_data(compare_ticker, interval, start=start_date, end=end_date)
+                cd = fetch_cached(compare_ticker, interval, start=str(start_date), end=str(end_date))
 
-        if not compare_data.empty:
-            norm_main = (data["Close"] / data["Close"].iloc[0]) * 100
-            norm_comp = (compare_data["Close"] / compare_data["Close"].iloc[0]) * 100
+        if not cd.empty:
+            nm = (data["Close"] / data["Close"].iloc[0]) * 100
+            nc = (cd["Close"] / cd["Close"].iloc[0]) * 100
+            cdn = compare_ticker.replace(".NS","").replace(".BO","").replace("-USD","")
 
-            compare_display = compare_ticker.replace(".NS", "").replace(".BO", "").replace("-USD", "")
-            comp_currency = MARKETS[compare_market]["currency"]
+            fc = go.Figure()
+            fc.add_trace(go.Scatter(x=data.index, y=nm.values.flatten(), name=display_name, line=dict(color="#6C63FF", width=2.5)))
+            fc.add_trace(go.Scatter(x=cd.index, y=nc.values.flatten(), name=cdn, line=dict(color="#10b981", width=2.5)))
+            l = chart_layout(450)
+            l["yaxis"]["title"] = "Normalized (Base=100)"
+            fc.update_layout(**l)
+            st.plotly_chart(fc, use_container_width=True)
 
-            fig_cmp = go.Figure()
-            fig_cmp.add_trace(go.Scatter(x=data.index, y=norm_main.values.flatten(), name=display_name, line=dict(color="#6C63FF", width=2.5)))
-            fig_cmp.add_trace(go.Scatter(x=compare_data.index, y=norm_comp.values.flatten(), name=compare_display, line=dict(color="#10b981", width=2.5)))
-            layout_cmp = get_chart_layout(500)
-            layout_cmp["yaxis"]["title"] = "Normalized Price (Base=100)"
-            fig_cmp.update_layout(**layout_cmp)
-            st.plotly_chart(fig_cmp, use_container_width=True)
-
-            c_latest = float(np.array(compare_data["Close"]).flatten()[-1])
-            c_prev = float(np.array(compare_data["Close"]).flatten()[-2]) if len(compare_data) > 1 else c_latest
-            c_pct = ((c_latest - c_prev) / c_prev) * 100 if c_prev != 0 else 0
-            c_high = float(np.array(compare_data["High"]).flatten()[-1])
-            c_low = float(np.array(compare_data["Low"]).flatten()[-1])
+            cl = float(np.array(cd["Close"]).flatten()[-1])
+            cp = float(np.array(cd["Close"]).flatten()[-2]) if len(cd) > 1 else cl
+            cpct = ((cl - cp) / cp) * 100 if cp != 0 else 0
+            cc = MARKETS[cmp_market]["currency"]
 
             st.markdown(f"""
             <table class="compare-table">
-                <tr><th>Metric</th><th>{display_name}</th><th>{compare_display}</th></tr>
-                <tr><td>Price</td><td>{format_price(latest_price, currency)}</td><td>{format_price(c_latest, comp_currency)}</td></tr>
-                <tr><td>Change</td>
-                    <td style="color:{'#10b981' if pct_change>=0 else '#ef4444'}">{pct_change:+.2f}%</td>
-                    <td style="color:{'#10b981' if c_pct>=0 else '#ef4444'}">{c_pct:+.2f}%</td>
-                </tr>
-                <tr><td>High</td><td>{format_price(day_high, currency)}</td><td>{format_price(c_high, comp_currency)}</td></tr>
-                <tr><td>Low</td><td>{format_price(day_low, currency)}</td><td>{format_price(c_low, comp_currency)}</td></tr>
-            </table>
-            """, unsafe_allow_html=True)
+                <tr><th>Metric</th><th>{display_name}</th><th>{cdn}</th></tr>
+                <tr><td>Price</td><td>{fmt_price(latest_price, currency)}</td><td>{fmt_price(cl, cc)}</td></tr>
+                <tr><td>Change</td><td style="color:{'#10b981' if pct_change>=0 else '#ef4444'}">{pct_change:+.2f}%</td><td style="color:{'#10b981' if cpct>=0 else '#ef4444'}">{cpct:+.2f}%</td></tr>
+            </table>""", unsafe_allow_html=True)
         else:
             st.error("Could not fetch comparison data.")
     else:
-        st.info("💡 Enable **Stock Comparison** in the sidebar to compare two assets head-to-head.")
+        st.info("💡 Enable **Compare** in sidebar.")
 
 
 # ======================================================
-# TAB 6: RAW DATA
+# TAB 6: DATA
 # ======================================================
 
 with tab6:
-    st.markdown("""<div class="section-header">📋 Historical Data <span class="section-badge">RAW</span></div>""", unsafe_allow_html=True)
-
-    data_display = data.copy()
-    if hasattr(data_display.index, 'strftime'):
-        try:
-            data_display.index = data_display.index.strftime('%Y-%m-%d %H:%M')
-        except Exception:
-            pass
-
-    show_rows = st.slider("Rows to display", 10, min(500, len(data)), 50)
-    st.dataframe(data_display.tail(show_rows), use_container_width=True, height=500)
-
-    csv = data.to_csv()
-    st.download_button(
-        label="📥 Download CSV",
-        data=csv,
-        file_name=f"{display_name}_data.csv",
-        mime="text/csv"
-    )
+    st.markdown('<div class="section-header">📋 Data <span class="section-badge">RAW</span></div>', unsafe_allow_html=True)
+    dd = data.copy()
+    try:
+        dd.index = dd.index.strftime('%Y-%m-%d %H:%M')
+    except Exception:
+        pass
+    rows = st.slider("Rows", 10, min(500, len(data)), 50)
+    st.dataframe(dd.tail(rows), use_container_width=True, height=450)
+    st.download_button("📥 CSV", data.to_csv(), f"{display_name}_live.csv", "text/csv")
 
 
 # ======================================================
@@ -1300,12 +1150,10 @@ with tab6:
 st.markdown(f"""
 <div class="footer">
     <p class="footer-text">
-        Built with ❤️ by <span class="footer-brand">Sarthak Uniyal</span> •
-        Powered by <span class="footer-brand">LSTM Deep Learning</span> •
-        Data from <span class="footer-brand">Yahoo Finance</span>
-    </p>
-    <p class="footer-text" style="margin-top: 0.5rem; font-size: 0.75rem;">
-        ⚠️ Educational purposes only. Not financial advice. Crypto markets are highly volatile.
+        Built by <span class="footer-brand">Sarthak Uniyal</span> •
+        <span class="footer-brand">LSTM AI</span> •
+        <span class="footer-brand">Yahoo Finance</span> •
+        ⚠️ Educational only. Not financial advice.
     </p>
 </div>
 """, unsafe_allow_html=True)
